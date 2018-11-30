@@ -5,9 +5,13 @@
 # Email: sbkim0407@gmail.com
 # ---------------------------------------------------------
 import os
+import sys
 import logging
+import cv2
 import tensorflow as tf
 from datetime import datetime
+
+from dataset_ import Dataset
 
 logger = logging.getLogger(__name__)  # logger
 logger.setLevel(logging.INFO)
@@ -24,7 +28,7 @@ class Solver(object):
         self._make_folders()
         self._init_logger()
 
-        # self.dataset = Dataset(self.sess, self.flags, self.flags.dataset, log_path=self.log_out_dir)
+        self.dataset = Dataset(self.sess, self.flags, self.flags.dataset, log_path=self.log_out_dir)
         # self.model = PixelRNN(self.sess, self.flags, self.dataset, log_path=self.log_out_dir)
 
         # self.saver = tf.train.Saver()
@@ -87,4 +91,20 @@ class Solver(object):
             logger.info('load_model: {}'.format(self.flags.load_model))
 
     def train(self):
-        print('Hello train function')
+        print(' [*] Hello train function!')
+
+        imgs, _ = self.dataset.train_next_batch()
+        for idx in range(imgs.shape[0]):
+            # print('Label: {}'.format(labels[idx]))
+            img = imgs[idx]
+            img = img[:, :, ::-1]  # RGB to BGR
+            cv2.imshow('Show', img)
+
+            if cv2.waitKey(0) & 0xFF == 27:
+                sys.exit(' [!] Esc clicked!')
+
+        print('imgs shape: {}'.format(imgs.shape))
+        # print('labels shape: {}'.format(labels.shape))
+
+    def test(self):
+        print(' [*] Hello test function!')
