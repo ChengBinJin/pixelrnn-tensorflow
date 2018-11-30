@@ -6,7 +6,7 @@
 # ---------------------------------------------------------
 import os
 import tensorflow as tf
-# from solver import Solver
+from solver import Solver
 
 FLAGS = tf.flags.FLAGS
 
@@ -29,9 +29,9 @@ tf.flags.DEFINE_string('load_model', None, 'folder of saved model that you wish 
 def main(_):
     os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu_index
 
-    # solver = Solver(FLAGS)
-    # if FLAGS.is_train:
-    #     solver.train()
+    solver = Solver(FLAGS)
+    if FLAGS.is_train:
+        solver.train()
     # if not FLAGS.is_train:
     #     solver.test()
 
