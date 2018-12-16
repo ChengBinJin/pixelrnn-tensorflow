@@ -5,12 +5,11 @@
 # Email: sbkim0407@gmail.com
 # ---------------------------------------------------------
 import os
-import sys
 import logging
-import cv2
 import tensorflow as tf
 from datetime import datetime
 
+from pixelrnn import PixelRNN
 from dataset_ import Dataset
 
 logger = logging.getLogger(__name__)  # logger
@@ -29,10 +28,10 @@ class Solver(object):
         self._init_logger()
 
         self.dataset = Dataset(self.sess, self.flags, self.flags.dataset, log_path=self.log_out_dir)
-        # self.model = PixelRNN(self.sess, self.flags, self.dataset, log_path=self.log_out_dir)
+        self.model = PixelRNN(self.sess, self.flags, self.dataset, log_path=self.log_out_dir)
 
-        # self.saver = tf.train.Saver()
-        # self.sess.run(tf.global_variables_initializer())
+        self.saver = tf.train.Saver()
+        self.sess.run(tf.global_variables_initializer())
 
     def _make_folders(self):
         if self.flags.is_train:  # train stage
@@ -94,17 +93,7 @@ class Solver(object):
         print(' [*] Hello train function!')
 
         imgs, _ = self.dataset.train_next_batch()
-        for idx in range(imgs.shape[0]):
-            # print('Label: {}'.format(labels[idx]))
-            img = imgs[idx]
-            img = img[:, :, ::-1]  # RGB to BGR
-            cv2.imshow('Show', img)
 
-            if cv2.waitKey(0) & 0xFF == 27:
-                sys.exit(' [!] Esc clicked!')
-
-        print('imgs shape: {}'.format(imgs.shape))
-        # print('labels shape: {}'.format(labels.shape))
 
     def test(self):
         print(' [*] Hello test function!')
