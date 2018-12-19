@@ -9,6 +9,8 @@ import logging
 import numpy as np
 import tensorflow as tf
 
+import utils as utils
+
 logger = logging.getLogger(__name__)  # logger
 logger.setLevel(logging.INFO)
 
@@ -48,24 +50,37 @@ class MnistDataset(object):
 
         # TensorFlow Dataset API
         train_x, train_y = self.train_data
-        self.test_x, self.test_y = self.test_data
-        dataset = tf.data.Dataset.from_tensor_slices(({'image': train_x}, train_y))
-        dataset = dataset.shuffle(self.img_buffle).repeat().batch(self.flags.batch_size)
+        test_x, test_y = self.test_data
 
-        iterator = dataset.make_one_shot_iterator()
-        self.next_batch = iterator.get_next()
+        # training data
+        train_dataset = tf.data.Dataset.from_tensor_slices(({'image': train_x}, train_y))
+        train_dataset = train_dataset.shuffle(self.img_buffle).repeat().batch(self.flags.batch_size)
+        train_dataset = train_dataset.prefetch(10)  # prefetch
+        train_iterator = train_dataset.make_one_shot_iterator()
+        self.next_batch_train = train_iterator.get_next()
+
+        # test data
+        test_dataset = tf.data.Dataset.from_tensor_slices(({'image': test_x}, test_y))
+        test_dataset = test_dataset.shuffle(self.img_buffle).repeat(1).batch(self.flags.batch_size)
+        test_dataset = test_dataset.prefetch(10)  # prefetch
+        test_iterator = test_dataset.make_one_shot_iterator()
+        self.next_batch_test = test_iterator.get_next()
+
+        self.train_step_per_epoch = int(self.num_trains / self.flags.batch_size)
+        self.test_step_per_epoch = int(self.num_tests / self.flags.batch_size)
 
         logger.info('Load {} datast SUCCESS!'.format(self.dataset_name))
-        logger.info('Iamge size: {}'.format(self.img_size))
+        logger.info('Image size: {}'.format(self.img_size))
         logger.info('Num. of training data: {}'.format(self.num_trains))
 
     def train_next_batch(self):
-        batch_data = self.sess.run(self.next_batch)
+        batch_data = self.sess.run(self.next_batch_train)
         batch_imgs = batch_data[0]["image"]
         batch_labels = batch_data[1]
 
         imgs_array = np.reshape(batch_imgs, [self.flags.batch_size, *self.img_size])
         imgs_array = imgs_array / 255.
+        imgs_array = utils.binarize(imgs_array)  # input of the pixelrnn for mnist should be binarized data
 
         # one-hot representations
         labels_array = np.zeros((batch_labels.shape[0], 10))
@@ -74,11 +89,15 @@ class MnistDataset(object):
         return imgs_array, labels_array
 
     def test_next_batch(self):
-        idxs = np.random.randint(low=0, high=self.num_tests, size=self.flags.batch_size)
-        batch_imgs, batch_labels = self.test_x[idxs], self.test_y[idxs]
+        # idxs = np.random.randint(low=0, high=self.num_tests, size=self.flags.batch_size)
+        # batch_imgs, batch_labels = self.test_x[idxs], self.test_y[idxs]
+        batch_data = self.sess.run(self.next_batch_test)
+        batch_imgs = batch_data[0]["image"]
+        batch_labels = batch_data[1]
 
         imgs_array = np.reshape(batch_imgs, [self.flags.batch_size, *self.img_size])
         imgs_array = imgs_array / 255.
+        imgs_array = utils.binarize(imgs_array)  # input of the pixelrnn for mnist should be binarized data
 
         # one-hot representations
         labels_array = np.zeros((batch_labels.shape[0], 10))

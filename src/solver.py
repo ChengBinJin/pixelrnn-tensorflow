@@ -6,6 +6,7 @@
 # ---------------------------------------------------------
 import os
 import logging
+import numpy as np
 import tensorflow as tf
 from datetime import datetime
 
@@ -23,7 +24,7 @@ class Solver(object):
         self.sess = tf.Session(config=run_config)
 
         self.flags = flags
-        self.iter_time = 0
+        self.iter_epoch = 0
         self._make_folders()
         self._init_logger()
 
@@ -36,7 +37,7 @@ class Solver(object):
     def _make_folders(self):
         if self.flags.is_train:  # train stage
             if self.flags.load_model is None:
-                cur_time = datetime.now().strftime("%Y%m%d-%H%M%S")
+                cur_time = datetime.now().strftime("%Y%m%d-%H%M")
                 self.model_out_dir = "{}/model/{}".format(self.flags.dataset, cur_time)
 
                 if not os.path.isdir(self.model_out_dir):
@@ -51,7 +52,7 @@ class Solver(object):
                 os.makedirs(self.sample_out_dir)
 
             self.log_out_dir = "{}/logs/{}".format(self.flags.dataset, cur_time)
-            self.train_writer = tf.summary.FileWriter("{}/logs/{}".format(self.flags.dataset, cur_time))
+            self.writer = tf.summary.FileWriter("{}/logs/{}".format(self.flags.dataset, cur_time))
 
         elif not self.flags.is_train:  # test stage
             self.model_out_dir = "{}/model/{}".format(self.flags.dataset, self.flags.load_model)
@@ -83,17 +84,61 @@ class Solver(object):
             logger.info('is_train: {}'.format(self.flags.is_train))
             logger.info('learning_rate: {}'.format(self.flags.learning_rate))
 
-            logger.info('iters: {}'.format(self.flags.iters))
+            logger.info('epochs: {}'.format(self.flags.epochs))
             logger.info('print_freq: {}'.format(self.flags.print_freq))
             logger.info('save_freq: {}'.format(self.flags.save_freq))
-            logger.info('sample_freq: {}'.format(self.flags.sample_freq))
+            logger.info('sample_batch: {}'.format(self.flags.sample_batch))
             logger.info('load_model: {}'.format(self.flags.load_model))
 
     def train(self):
-        print(' [*] Hello train function!')
+        # load initialized checkpoint that provided
+        if self.flags.load_model is not None:
+            if self.load_model():
+                logger.info(' [*] Load SUCCESS!\n')
+            else:
+                logger.info(' [!] Load failed...\n')
 
-        imgs, _ = self.dataset.train_next_batch()
+        for self.iter_epoch in range(self.flags.epochs):
+            for iter_batch in range(self.dataset.train_step_per_epoch):
+                # next batch
+                batch_imgs, batch_labels = self.dataset.train_next_batch()
 
+                # train_step
+                loss, summary = self.model.train_step(batch_imgs)
+                self.model.print_info(loss, iter_batch, self.iter_epoch, self.dataset.train_step_per_epoch)
+                self.writer.add_summary(summary, self.iter_epoch * self.dataset.train_step_per_epoch + iter_batch)
+                self.writer.flush()
 
-    def test(self):
-        print(' [*] Hello test function!')
+            # batch_imgs, batch_labels = self.dataset.train_next_batch()
+            # samppling images and save them
+            self.sample(self.iter_epoch)
+
+            # save model
+            self.save_model(self.iter_epoch)
+
+    def sample(self, iter_epoch):
+        samples = self.model.sample_imgs()
+        # self.model.plots(imgs, iter_epoch, self.sample_out_dir)
+        self.model.plots(samples, iter_epoch, self.sample_out_dir)
+
+    def save_model(self, iter_epoch):
+        if np.mod(iter_epoch, self.flags.save_freq) == 0:
+            model_name = 'model'
+            self.saver.save(self.sess, os.path.join(self.model_out_dir, model_name), global_step=iter_epoch)
+            logger.info('[*] Model saved! Iter: {}'.format(iter_epoch))
+
+    def load_model(self):
+        logger.info(' [*] Reading checkpoint...')
+
+        ckpt = tf.train.get_checkpoint_state(self.model_out_dir)
+        if ckpt and ckpt.model_checkpoint_path:
+            ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+            self.saver.restore(self.sess, os.path.join(self.model_out_dir, ckpt_name))
+
+            meta_graph_path = ckpt.model_checkpoint_path + '.meta'
+            self.iter_epoch = int(meta_graph_path.split('-')[-1].split('.')[0])
+
+            logger.info('[*] Load iter_time: {}'.format(self.iter_epoch))
+            return True
+        else:
+            return False
