@@ -31,8 +31,8 @@ def main(_):
     solver = Solver(FLAGS)
     if FLAGS.is_train:
         solver.train()
-    # if not FLAGS.is_train:
-    #     solver.test()
+    if not FLAGS.is_train:
+        solver.test()
 
 
 if __name__ == '__main__':

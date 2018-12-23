@@ -109,17 +109,31 @@ class Solver(object):
                 self.writer.add_summary(summary, self.iter_epoch * self.dataset.train_step_per_epoch + iter_batch)
                 self.writer.flush()
 
-            # batch_imgs, batch_labels = self.dataset.train_next_batch()
             # samppling images and save them
-            self.sample(self.iter_epoch)
+            self.sample(self.iter_epoch, self.sample_out_dir)
 
             # save model
             self.save_model(self.iter_epoch)
 
-    def sample(self, iter_epoch):
+        # last save
+        self.save_model(self.flags.epochs)
+
+    def test(self):
+        # load initialized checkpoint that provided
+        if self.flags.load_model is not None:
+            if self.load_model():
+                logger.info(' [*] Load SUCCESS!\n')
+            else:
+                logger.info(' [!] Load failed...\n')
+
+        num_iters = 20
+        for iter_time in range(num_iters):
+            print('iter_time: {}...'.format(iter_time))
+            self.sample(iter_time, self.test_out_dir)
+
+    def sample(self, iter_epoch, save_folder):
         samples = self.model.sample_imgs()
-        # self.model.plots(imgs, iter_epoch, self.sample_out_dir)
-        self.model.plots(samples, iter_epoch, self.sample_out_dir)
+        self.model.plots(samples, iter_epoch, save_folder)
 
     def save_model(self, iter_epoch):
         if np.mod(iter_epoch, self.flags.save_freq) == 0:
@@ -138,7 +152,7 @@ class Solver(object):
             meta_graph_path = ckpt.model_checkpoint_path + '.meta'
             self.iter_epoch = int(meta_graph_path.split('-')[-1].split('.')[0])
 
-            logger.info('[*] Load iter_time: {}'.format(self.iter_epoch))
+            logger.info('[*] Load epoch_time: {}'.format(self.iter_epoch))
             return True
         else:
             return False
