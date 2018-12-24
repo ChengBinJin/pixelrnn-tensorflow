@@ -28,7 +28,7 @@ class PixelRNN(object):
 
         self.grad_clip = 1.
         if flags.dataset == 'mnist':
-            self.hidden_dims = 64
+            self.hidden_dims = 16
             self.recurrent_length = 7
             self.out_recurrent_length = 2
 
@@ -64,14 +64,21 @@ class PixelRNN(object):
             tf_utils.print_activations(inputs)
 
             # input of main reccurent layers
-            output = self.conv2d_mask(inputs, self.hidden_dims, [7, 7], mask_type="A", name='inputConv1')
+            output = self.conv2d_mask(inputs, 2*self.hidden_dims, [7, 7], mask_type="A", name='inputConv1')
 
             # main recurrent layers
-            # The paper doesn't specify how many convs to use, so I picked 4 pretty arbitrarily
-            for idx in range(self.recurrent_length):
-                output = self.conv2d_mask(output, self.hidden_dims, [3, 3], mask_type="B",
-                                          name='mainConv{}'.format(idx + 2))
-                output = tf_utils.relu(output, name='mainRelu{}'.format(idx + 2))
+            if self.flags.model == 'pixelcnn':
+                for idx in range(self.recurrent_length):
+                    output = self.conv2d_mask(output, self.hidden_dims, [3, 3], mask_type="B",
+                                              name='mainConv{}'.format(idx+2))
+                    output = tf_utils.relu(output, name='mainRelu{}'.format(idx+2))
+
+            elif self.flags.model == 'diagonal_bilstm':
+                for idx in range(self.recurrent_length):
+                    output = self.diagonal_bilstm(output, name='BiLSTM{}'.format(idx+2))
+
+            else:
+                raise NotImplementedError
 
             # output recurrent layers
             for idx in range(self.out_recurrent_length):
@@ -162,4 +169,32 @@ class PixelRNN(object):
 
             return outputs
 
+    def diagonal_bilstm(self, inputs, name='BiLSTM'):
+        with tf.variable_scope(name):
+            output_state_fw = self.diagonal_lstm(inputs, name='output_state_fw')
+            output_state_bw = self.reverse(self.diagonal_lstm(self.reverse(inputs), name='output_state_bw'))
 
+            # output = self.conv2d_mask(inputs, self.hidden_dims, [7, 7], mask_type="A", name='inputConv1')
+            # Residual connection part
+            residual_state_fw = self.conv2d_mask(output_state_fw, 2*self.hidden_dims, [1, 1], mask_type="B",
+                                                 name='residual_fw')
+            output_state_fw = residual_state_fw + inputs
+
+            residual_state_bw = self.conv2d_mask(output_state_bw, 2*self.hidden_dims, [1, 1], mask_type="B",
+                                                 name='residual_bw')
+            output_state_bw = residual_state_bw + inputs
+
+
+
+            return 0
+
+    def diagonal_lstm(self, inputs, name='LSTM'):
+        print('Hello diagonal_lstm!')
+
+        return 0
+
+    @staticmethod
+    def reverse(inputs, name='Reverse'):
+        with tf.variable_scope(name):
+            reverse_inputs = tf.reverse(inputs, axis=[2])  # [False, False, True, False]
+            return reverse_inputs

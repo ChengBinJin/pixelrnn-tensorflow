@@ -11,7 +11,7 @@ from solver import Solver
 FLAGS = tf.flags.FLAGS
 
 tf.flags.DEFINE_string('gpu_index', '0', 'gpu index if you have multiple gpus, default: 0')
-tf.flags.DEFINE_string('model', 'pixelcnn', 'name of the model [pixelcnn, row_lstm, diagonal_bilstm]')
+tf.flags.DEFINE_string('model', 'diagonal_bilstm', 'name of the model [pixelcnn, row_lstm, diagonal_bilstm]')
 tf.flags.DEFINE_integer('batch_size', 100, 'batch sizes, default: 128')
 tf.flags.DEFINE_string('dataset', 'mnist', 'dataset name from [mnist, cifar10], default: mnist')
 
