@@ -279,3 +279,7 @@ def batch_convert2int(images):
 def convert2int(image):
     # transform from float tensor ([-1.,1.]) to int image ([0,255])
     return tf.image.convert_image_dtype((image + 1.0) / 2.0, tf.uint8)
+
+
+def get_shape(inputs):
+    return inputs.get_shape().as_list()

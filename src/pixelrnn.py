@@ -169,12 +169,11 @@ class PixelRNN(object):
 
             return outputs
 
-    def diagonal_bilstm(self, inputs, name='BiLSTM'):
+    def diagonal_bilstm(self, inputs, name='diagonal_bilstm'):
         with tf.variable_scope(name):
             output_state_fw = self.diagonal_lstm(inputs, name='output_state_fw')
             output_state_bw = self.reverse(self.diagonal_lstm(self.reverse(inputs), name='output_state_bw'))
 
-            # output = self.conv2d_mask(inputs, self.hidden_dims, [7, 7], mask_type="A", name='inputConv1')
             # Residual connection part
             residual_state_fw = self.conv2d_mask(output_state_fw, 2*self.hidden_dims, [1, 1], mask_type="B",
                                                  name='residual_fw')
@@ -184,14 +183,45 @@ class PixelRNN(object):
                                                  name='residual_bw')
             output_state_bw = residual_state_bw + inputs
 
+            batch, height, width, channel = output_state_bw.get_shape().as_list()
+            output_state_bw_except_last = tf.slice(output_state_bw, [0, 0, 0, 0], [-1, height-1, -1, -1])
+            output_state_bw_only_last = tf.slice(output_state_bw, [0, height-1, 0, 0], [-1, -1, -1, -1])
+            dummy_zeros = tf.zeros_like(output_state_bw_only_last)
 
+            output_state_bw_with_last_zeros = tf.concat([output_state_bw_except_last, dummy_zeros], axis=1)
 
-            return 0
+            return output_state_fw + output_state_bw_with_last_zeros
 
-    def diagonal_lstm(self, inputs, name='LSTM'):
-        print('Hello diagonal_lstm!')
+    def diagonal_lstm(self, inputs, name='diagonal_lstm'):
+        with tf.variable_scope(name):
+            skewed_inputs = self.skew(inputs, name='skewed_i')
 
         return 0
+
+    @staticmethod
+    def skew(inputs, name='skew'):
+        with tf.name_scope(name):
+            batch, height, width, channel = tf_utils.get_shape(inputs)  # [batch, height, width, channel]
+            rows = tf.split(inputs, height, axis=1)  # [batch, 1, width, channel]
+
+            new_width = width + height - 1
+            new_rows = []
+
+            for idx, row in enumerate(rows):
+                transposed_row = tf.transpose(tf.squeeze(row, axis=[1]), [0, 2, 1])  # [batch, channel, width]
+                squeezed_row = tf.reshape(transposed_row, [-1, width])  # [batch*channel, width]
+                padded_row = tf.pad(squeezed_row, ((0,0), (idx, height-1-idx)))  # [batch*channel, width*2-1]
+
+                unsqueezed_row = tf.reshape(padded_row, [-1, channel, new_width])  # [batch, channel, width*2-1]
+                untransposed_row = tf.transpose(unsqueezed_row, [0, 2, 1])  # [batch, width*2-1, channel]
+
+                assert tf_utils.get_shape(untransposed_row) == [batch, new_width, channel], "wrong shape of skewed row"
+                new_rows.append(untransposed_row)
+
+            outputs = tf.stack(new_rows, axis=1, name="output")
+            assert tf_utils.get_shape(outputs) == [None, height, new_width, channel], "wrong shape of skewed output"
+
+        return outputs
 
     @staticmethod
     def reverse(inputs, name='Reverse'):
