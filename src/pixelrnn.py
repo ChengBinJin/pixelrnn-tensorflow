@@ -9,6 +9,7 @@ import logging
 import collections
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.rnn.python.ops import core_rnn_cell
 from scipy.misc import imsave
 
 import tensorflow_utils as tf_utils
@@ -44,7 +45,7 @@ class PixelRNN(object):
         self.input_tf = tf.placeholder(tf.float32, shape=[None, *self.img_size], name='input_img')
 
         # pixelrnn network
-        self.output, self.output_logits = self.network(self.input_tf, name='pixelcnn')
+        self.output, self.output_logits = self.network(self.input_tf, name=self.flags.model)
 
         # loss
         self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=self.output_logits,
@@ -64,13 +65,13 @@ class PixelRNN(object):
             tf_utils.print_activations(inputs)
 
             # input of main reccurent layers
-            output = self.conv2d_mask(inputs, 2*self.hidden_dims, [7, 7], mask_type="A", name='inputConv1')
+            output = tf_utils.conv2d_mask(inputs, 2*self.hidden_dims, [7, 7], mask_type="A", name='inputConv1')
 
             # main recurrent layers
             if self.flags.model == 'pixelcnn':
                 for idx in range(self.recurrent_length):
-                    output = self.conv2d_mask(output, self.hidden_dims, [3, 3], mask_type="B",
-                                              name='mainConv{}'.format(idx+2))
+                    output = tf_utils.conv2d_mask(output, self.hidden_dims, [3, 3], mask_type="B",
+                                                  name='mainConv{}'.format(idx+2))
                     output = tf_utils.relu(output, name='mainRelu{}'.format(idx+2))
 
             elif self.flags.model == 'diagonal_bilstm':
@@ -82,12 +83,12 @@ class PixelRNN(object):
 
             # output recurrent layers
             for idx in range(self.out_recurrent_length):
-                output = self.conv2d_mask(output, self.hidden_dims, [1, 1], mask_type="B",
+                output = tf_utils.conv2d_mask(output, self.hidden_dims, [1, 1], mask_type="B",
                                           name='outputConv{}'.format(idx + 1))
                 output = tf_utils.relu(output, name='outputRelu{}'.format(idx + 1))
 
             # TODO: for color images, implement a 256-way softmax for each RGB channel here
-            output = self.conv2d_mask(output, self.img_size[2], [1, 1], mask_type="B", name='outputConv3')
+            output = tf_utils.conv2d_mask(output, self.img_size[2], [1, 1], mask_type="B", name='outputConv3')
             # output = tf_utils.sigmoid(output_logits, name='output_sigmoid')
 
             return tf_utils.sigmoid(output), output
@@ -133,54 +134,18 @@ class PixelRNN(object):
         imsave(os.path.join(save_file, '{}.png'.format(str(iter_time).zfill(3))),
                utils._merge(imgs_fake, size=[h_imgs, w_imgs], resize_ratio=1.))
 
-    @staticmethod
-    def conv2d_mask(inputs, output_dim, kernel_shape, mask_type, strides=[1, 1], padding="SAME",
-                    name="conv2d", is_print=True):
-        # kernel_shape: [kernel_height, kernel_width]
-        # mask_type: None, "A", "
-        # B"
-        # strides: [1, 1] [column_wise_stride, row_wise_stride]
-        with tf.variable_scope(name):
-            batch, height, width, channel = inputs.get_shape().as_list()
-
-            k_h, k_w = kernel_shape
-            assert k_h % 2 == 1 and k_w % 2 == 1, "kernel height and width should be odd number"
-            # Kaiming He weight initialization
-            weights = tf.get_variable('weights', [k_h, k_w, inputs.get_shape()[-1], output_dim],
-                                      initializer=tf.contrib.layers.xavier_initializer())
-
-            mask = np.ones((k_h, k_w, channel, output_dim), dtype=np.float32)
-            mask[int(k_h // 2), int(k_w // 2)+1:, :, :] = 0.
-            mask[int(k_h // 2)+1:, :, :, :] = 0.
-
-            mask_type = mask_type.lower()
-            if mask_type == 'a':
-                mask[int(k_h // 2), int(k_w // 2), :, :] = 0.
-
-            # weights.assign(weights * tf.constant(mask, dtype=tf.float32))
-            weights *= tf.constant(mask, dtype=tf.float32)
-            outputs = tf.nn.conv2d(inputs, weights, [1, strides[0], strides[1], 1], padding=padding, name='outputs')
-
-            biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0))
-            outputs = tf.nn.bias_add(outputs, biases)
-
-            if is_print:
-                tf_utils.print_activations(outputs)
-
-            return outputs
-
     def diagonal_bilstm(self, inputs, name='diagonal_bilstm'):
         with tf.variable_scope(name):
             output_state_fw = self.diagonal_lstm(inputs, name='output_state_fw')
-            output_state_bw = self.reverse(self.diagonal_lstm(self.reverse(inputs), name='output_state_bw'))
+            output_state_bw = tf_utils.reverse(self.diagonal_lstm(tf_utils.reverse(inputs), name='output_state_bw'))
 
             # Residual connection part
-            residual_state_fw = self.conv2d_mask(output_state_fw, 2*self.hidden_dims, [1, 1], mask_type="B",
-                                                 name='residual_fw')
+            residual_state_fw = tf_utils.conv2d_mask(output_state_fw, 2*self.hidden_dims, [1, 1], mask_type="B",
+                                                     name='residual_fw')
             output_state_fw = residual_state_fw + inputs
 
-            residual_state_bw = self.conv2d_mask(output_state_bw, 2*self.hidden_dims, [1, 1], mask_type="B",
-                                                 name='residual_bw')
+            residual_state_bw = tf_utils.conv2d_mask(output_state_bw, 2*self.hidden_dims, [1, 1], mask_type="B",
+                                                     name='residual_bw')
             output_state_bw = residual_state_bw + inputs
 
             batch, height, width, channel = output_state_bw.get_shape().as_list()
@@ -194,37 +159,81 @@ class PixelRNN(object):
 
     def diagonal_lstm(self, inputs, name='diagonal_lstm'):
         with tf.variable_scope(name):
-            skewed_inputs = self.skew(inputs, name='skewed_i')
+            skewed_inputs = tf_utils.skew(inputs, name='skewed_i')
 
-        return 0
+            # input-to-state (K_is * x_i): 1x1 convolution. generate 4h x n x n tensor
+            input_to_state = tf_utils.conv2d_mask(skewed_inputs, 4*self.hidden_dims, [1, 1], mask_type="B",
+                                                  name="i_to_s")
+            # [batch, width, height, hidden_dims*4]
+            column_wise_inputs = tf.transpose(input_to_state, [0, 2, 1, 3])
 
-    @staticmethod
-    def skew(inputs, name='skew'):
-        with tf.name_scope(name):
-            batch, height, width, channel = tf_utils.get_shape(inputs)  # [batch, height, width, channel]
-            rows = tf.split(inputs, height, axis=1)  # [batch, 1, width, channel]
+            batch, width, height, channel = tf_utils.get_shape(column_wise_inputs)
+            # [batch, max_time, height*hidden_dims*4]
+            rnn_inputs = tf.reshape(column_wise_inputs, [-1, width, height*channel])
+            # rnn_input_list = [tf.squeeze(rnn_input, axis=[1]) for rnn_input in tf.split(rnn_inputs, width, axis=1)]
+            cell = DiagonalLSTMCell(self.hidden_dims, height, channel)
 
-            new_width = width + height - 1
-            new_rows = []
+            # [batch, width, height * hidden_dims]
+            outputs, states = tf.nn.dynamic_rnn(cell=cell, inputs=rnn_inputs, dtype=tf.float32)
+            packed_outputs = outputs
 
-            for idx, row in enumerate(rows):
-                transposed_row = tf.transpose(tf.squeeze(row, axis=[1]), [0, 2, 1])  # [batch, channel, width]
-                squeezed_row = tf.reshape(transposed_row, [-1, width])  # [batch*channel, width]
-                padded_row = tf.pad(squeezed_row, ((0,0), (idx, height-1-idx)))  # [batch*channel, width*2-1]
+            # [batch, width, height, hidden_dims]
+            width_first_output = tf.reshape(packed_outputs, [-1, width, height, self.hidden_dims])
 
-                unsqueezed_row = tf.reshape(padded_row, [-1, channel, new_width])  # [batch, channel, width*2-1]
-                untransposed_row = tf.transpose(unsqueezed_row, [0, 2, 1])  # [batch, width*2-1, channel]
-
-                assert tf_utils.get_shape(untransposed_row) == [batch, new_width, channel], "wrong shape of skewed row"
-                new_rows.append(untransposed_row)
-
-            outputs = tf.stack(new_rows, axis=1, name="output")
-            assert tf_utils.get_shape(outputs) == [None, height, new_width, channel], "wrong shape of skewed output"
+            skewed_outputs = tf.transpose(width_first_output, [0, 2, 1, 3])  # [batch, height, width, hidden_dims]
+            outputs = tf_utils.unskew(skewed_outputs)
 
         return outputs
 
-    @staticmethod
-    def reverse(inputs, name='Reverse'):
+
+class DiagonalLSTMCell(core_rnn_cell.RNNCell):
+    def __init__(self, hidden_dims, height, channel):
+        self._num_unit_shards = 1
+        self._forget_bias = 1.
+
+        self._height = height
+        self._channel = channel
+
+        self._hidden_dims = hidden_dims
+        self._num_units = self._hidden_dims * self._height
+        self._state_size = self._num_units * 2
+        self._output_size = self._num_units
+
+    @property
+    def state_size(self):
+        return self._state_size
+
+    @property
+    def output_size(self):
+        return self._output_size
+
+    def __call__(self, i_to_s, state, name='DiagonalBiLSTMCell'):
+        c_prev = tf.slice(state, begin=[0, 0], size=[-1, self._num_units])
+        # [batch, height * hidden_dims]
+        h_prev = tf.slice(state, begin=[0, self._num_units], size=[-1, self._num_units])
+
+        # i_to_s: [batch, 4 * height * hidden_dims]
+        input_size = i_to_s.get_shape().with_rank(2)[1]
+
+        if input_size.value is None:
+            raise ValueError("Could not infer input size from inputs.get_shape()[-1]")
+
         with tf.variable_scope(name):
-            reverse_inputs = tf.reverse(inputs, axis=[2])  # [False, False, True, False]
-            return reverse_inputs
+            # input-to-state (K_ss * h_{i-1}) : 2x1 convolution. generate 4h x n x n ternsor.
+            # [batch, height, 1, hidden_dims]
+            conv1d_inputs = tf.reshape(h_prev, [-1, self._height, 1, self._hidden_dims], name='conv1d_inputs')
+
+            # [batch, height, 1, hidden_dims * 4]
+            conv_s_to_s = tf_utils.conv1d(conv1d_inputs, 4*self._hidden_dims, kernel_size=2, name='s_to_s')
+            # [batch, height * hidden_dims * 4]
+            s_to_s = tf.reshape(conv_s_to_s, [-1, self._height * self._hidden_dims * 4])
+            lstm_matrix = tf_utils.sigmoid(s_to_s + i_to_s)
+
+            # i=input_gate, g=new_input, f=forget_gate, o=output_gate
+            o, f, i, g = tf.split(lstm_matrix, 4, axis=1)
+            c = f * c_prev + i * g
+            h = o * tf_utils.tanh(c)
+
+        new_state = tf.concat([c, h], axis=1)
+        return h, new_state
+

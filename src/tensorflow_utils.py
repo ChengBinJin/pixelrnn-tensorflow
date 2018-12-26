@@ -6,6 +6,7 @@
 # ---------------------------------------------------------
 import os
 import logging
+import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from tensorflow.python.training import moving_averages
@@ -283,3 +284,100 @@ def convert2int(image):
 
 def get_shape(inputs):
     return inputs.get_shape().as_list()
+
+def conv2d_mask(inputs, output_dim, kernel_shape, mask_type, strides=[1, 1], padding="SAME", name="conv2d",
+                is_print=True):
+    # kernel_shape: [kernel_height, kernel_width]
+    # mask_type: None, "A", "
+    # B"
+    # strides: [1, 1] [column_wise_stride, row_wise_stride]
+    with tf.variable_scope(name):
+        batch, height, width, channel = inputs.get_shape().as_list()
+
+        k_h, k_w = kernel_shape
+        assert k_h % 2 == 1 and k_w % 2 == 1, "kernel height and width should be odd number"
+        # Kaiming He weight initialization
+        weights = tf.get_variable('weights', [k_h, k_w, inputs.get_shape()[-1], output_dim],
+                                  initializer=tf.contrib.layers.xavier_initializer())
+
+        mask = np.ones((k_h, k_w, channel, output_dim), dtype=np.float32)
+        mask[int(k_h // 2), int(k_w // 2)+1:, :, :] = 0.
+        mask[int(k_h // 2)+1:, :, :, :] = 0.
+
+        mask_type = mask_type.lower()
+        if mask_type == 'a':
+            mask[int(k_h // 2), int(k_w // 2), :, :] = 0.
+
+        # weights.assign(weights * tf.constant(mask, dtype=tf.float32))
+        weights *= tf.constant(mask, dtype=tf.float32)
+        outputs = tf.nn.conv2d(inputs, weights, [1, strides[0], strides[1], 1], padding=padding, name='outputs')
+
+        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0))
+        outputs = tf.nn.bias_add(outputs, biases)
+
+        if is_print:
+            print_activations(outputs)
+
+        return outputs
+
+def conv1d(inputs, output_dim, kernel_size, strides=[1, 1], padding="SAME", name="conv1d", is_print=True):
+    # kernel_shape: kernel_height
+    # strides: [1, 1] [column_wise_stride, row_wise_stride]
+    with tf.variable_scope(name):
+        batch, height, _, channel = get_shape(inputs)  # [batch, height, 1, channel]
+        kernel_h, kernel_w = kernel_size, 1
+        weights_shape = [kernel_h, kernel_w, channel, output_dim]
+
+        weights = tf.get_variable('weights', weights_shape, initializer=tf.contrib.layers.xavier_initializer())
+        outputs = tf.nn.conv2d(inputs, weights, [1, strides[0], strides[1], 1], padding=padding, name='outputs')
+
+        biases = tf.get_variable('biases', [output_dim], initializer=tf.constant_initializer(0.0))
+        outputs = tf.nn.bias_add(outputs, biases)
+
+        if is_print:
+            print_activations(outputs)
+
+        return outputs
+
+def unskew(inputs, width=None, name='unskew'):
+    with tf.name_scope(name):
+        batch, height, skewed_width, channel = get_shape(inputs)
+        width = width if width else height
+
+        new_rows = []
+        rows = tf.split(inputs, height, axis=1)
+
+        for idx, row in enumerate(rows):
+            new_rows.append(tf.slice(row, [0, 0, idx, 0], [-1, -1, width, -1]))
+        outputs = tf.concat(new_rows, axis=1, name='output')
+
+    return outputs
+
+def skew(inputs, name='skew'):
+    with tf.name_scope(name):
+        batch, height, width, channel = get_shape(inputs)  # [batch, height, width, channel]
+        rows = tf.split(inputs, height, axis=1)  # [batch, 1, width, channel]
+
+        new_width = width + height - 1
+        new_rows = []
+
+        for idx, row in enumerate(rows):
+            transposed_row = tf.transpose(tf.squeeze(row, axis=[1]), [0, 2, 1])  # [batch, channel, width]
+            squeezed_row = tf.reshape(transposed_row, [-1, width])  # [batch*channel, width]
+            padded_row = tf.pad(squeezed_row, ((0,0), (idx, height-1-idx)))  # [batch*channel, width*2-1]
+
+            unsqueezed_row = tf.reshape(padded_row, [-1, channel, new_width])  # [batch, channel, width*2-1]
+            untransposed_row = tf.transpose(unsqueezed_row, [0, 2, 1])  # [batch, width*2-1, channel]
+
+            assert get_shape(untransposed_row) == [batch, new_width, channel], "wrong shape of skewed row"
+            new_rows.append(untransposed_row)
+
+        outputs = tf.stack(new_rows, axis=1, name="output")
+        assert get_shape(outputs) == [None, height, new_width, channel], "wrong shape of skewed output"
+
+    return outputs
+
+def reverse(inputs, name='Reverse'):
+    with tf.variable_scope(name):
+        reverse_inputs = tf.reverse(inputs, axis=[2])  # [False, False, True, False]
+        return reverse_inputs
