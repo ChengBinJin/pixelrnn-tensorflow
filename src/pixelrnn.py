@@ -28,10 +28,9 @@ class PixelRNN(object):
         self.log_path = log_path
 
         self.grad_clip = 1.
-        if flags.dataset == 'mnist':
-            self.hidden_dims = 16
-            self.recurrent_length = 7
-            self.out_recurrent_length = 2
+        self.hidden_dims = 16
+        self.recurrent_length = 7
+        self.out_recurrent_length = 2
 
         self._init_logger()  # init logger
         self._build_net()    # init graph
@@ -73,11 +72,11 @@ class PixelRNN(object):
                     output = tf_utils.conv2d_mask(output, self.hidden_dims, [3, 3], mask_type="B",
                                                   name='mainConv{}'.format(idx+2))
                     output = tf_utils.relu(output, name='mainRelu{}'.format(idx+2))
-
             elif self.flags.model == 'diagonal_bilstm':
                 for idx in range(self.recurrent_length):
                     output = self.diagonal_bilstm(output, name='BiLSTM{}'.format(idx+2))
-
+            elif self.flags.model == 'row_lstm':
+                raise NotImplementedError
             else:
                 raise NotImplementedError
 
@@ -153,7 +152,7 @@ class PixelRNN(object):
             output_state_bw_only_last = tf.slice(output_state_bw, [0, height-1, 0, 0], [-1, -1, -1, -1])
             dummy_zeros = tf.zeros_like(output_state_bw_only_last)
 
-            output_state_bw_with_last_zeros = tf.concat([output_state_bw_except_last, dummy_zeros], axis=1)
+            output_state_bw_with_last_zeros = tf.concat([dummy_zeros, output_state_bw_except_last], axis=1)
 
             return output_state_fw + output_state_bw_with_last_zeros
 
