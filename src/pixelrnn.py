@@ -28,8 +28,8 @@ class PixelRNN(object):
         self.log_path = log_path
 
         self.grad_clip = 1.
-        self.hidden_dims = 16
-        self.recurrent_length = 7
+        self.hidden_dims = 16  # 16, 32, 64
+        self.recurrent_length = 7 if self.flags.model == 'pixelcnn' else 1  # 1, 2, 4, 7
         self.out_recurrent_length = 2
 
         self._init_logger()  # init logger

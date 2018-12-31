@@ -364,9 +364,9 @@ def skew(inputs, name='skew'):
         for idx, row in enumerate(rows):
             transposed_row = tf.transpose(tf.squeeze(row, axis=[1]), [0, 2, 1])  # [batch, channel, width]
             squeezed_row = tf.reshape(transposed_row, [-1, width])  # [batch*channel, width]
-            padded_row = tf.pad(squeezed_row, ((0,0), (idx, height-1-idx)))  # [batch*channel, width*2-1]
+            padded_row = tf.pad(squeezed_row, ((0,0), (idx, height-1-idx)))  # [batch*channel, width+height-1]
 
-            unsqueezed_row = tf.reshape(padded_row, [-1, channel, new_width])  # [batch, channel, width*2-1]
+            unsqueezed_row = tf.reshape(padded_row, [-1, channel, new_width])  # [batch, channel, width+height-1]
             untransposed_row = tf.transpose(unsqueezed_row, [0, 2, 1])  # [batch, width*2-1, channel]
 
             assert get_shape(untransposed_row) == [batch, new_width, channel], "wrong shape of skewed row"
